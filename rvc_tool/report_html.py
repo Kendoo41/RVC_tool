@@ -433,6 +433,7 @@ _PAGE_TEMPLATE = """<!DOCTYPE html>
       <div class="panel-actions" onclick="event.stopPropagation()">
         <button class="pact-btn" id="btnAll">Check all</button>
         <button class="pact-btn" id="btnNone">Uncheck all</button>
+        <button class="pact-btn" id="btnReset">Reset</button>
       </div>
     </div>
     <div class="list-panel-body" id="listPanelBody">
@@ -496,6 +497,7 @@ document.querySelectorAll('.list-toggle').forEach(cb => {
   cb.addEventListener('change', () => {
     const block = document.querySelector('.file-block[data-list-id="' + cb.dataset.target + '"]');
     if (block) block.classList.toggle('list-hidden', !cb.checked);
+    saveState();
   });
 });
 document.getElementById('btnAll').addEventListener('click', () =>
@@ -511,6 +513,46 @@ document.getElementById('listPanelToggle').addEventListener('click', () => {
 let resultFilters = new Set();
 let prioFilters = new Set();
 let searchText = '';
+
+// ---- persist view state (hidden lists + filters + search) across reloads ----
+// Stored in the browser's localStorage, so re-running `rvc build` to refresh
+// status (or just reloading the page) keeps your current view instead of
+// resetting to all-shown. Keyed by page path so multiple dashboards on one
+// browser don't collide; wrapped in try/catch so it degrades silently when a
+// browser blocks storage on file:// URLs.
+const STORE_KEY = 'rvc:' + (location.pathname || 'report');
+function saveState() {
+  try {
+    const hidden = [];
+    document.querySelectorAll('.list-toggle').forEach(cb => { if (!cb.checked) hidden.push(cb.dataset.target); });
+    localStorage.setItem(STORE_KEY, JSON.stringify({
+      hidden: hidden,
+      result: Array.from(resultFilters),
+      prio: Array.from(prioFilters),
+      q: searchText
+    }));
+  } catch (e) {}
+}
+function loadState() {
+  let s;
+  try { s = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); } catch (e) { s = null; }
+  if (!s) return;
+  (s.hidden || []).forEach(target => {
+    const cb = document.querySelector('.list-toggle[data-target="' + target + '"]');
+    if (cb) cb.checked = false;
+    const block = document.querySelector('.file-block[data-list-id="' + target + '"]');
+    if (block) block.classList.add('list-hidden');
+  });
+  resultFilters = new Set(s.result || []);
+  prioFilters = new Set(s.prio || []);
+  document.querySelectorAll('.fbtn[data-f]').forEach(b =>
+    b.classList.toggle('active', b.dataset.f === 'ALL' ? resultFilters.size === 0 : resultFilters.has(b.dataset.f)));
+  document.querySelectorAll('.fbtn[data-p]').forEach(b =>
+    b.classList.toggle('active', prioFilters.has(b.dataset.p)));
+  searchText = (s.q || '').toLowerCase();
+  input.value = s.q || '';
+  clearBtn.style.display = searchText ? 'flex' : 'none';
+}
 function applyFilters() {
   const showAllRes = resultFilters.size === 0;
   const showAllPrio = prioFilters.size === 0;
@@ -530,6 +572,7 @@ function applyFilters() {
     if (tbl) tbl.style.display = visible === 0 ? 'none' : '';
   });
   updateCount();
+  saveState();
 }
 function updateCount() {
   let total = 0, vis = 0;
@@ -566,6 +609,28 @@ input.addEventListener('input', () => {
   applyFilters();
 });
 clearBtn.addEventListener('click', () => { input.value = ''; searchText = ''; clearBtn.style.display = 'none'; applyFilters(); });
+
+// ---- reset everything (filters, search, list visibility) + clear saved state ----
+document.getElementById('btnReset').addEventListener('click', () => {
+  resultFilters.clear();
+  prioFilters.clear();
+  searchText = '';
+  input.value = '';
+  clearBtn.style.display = 'none';
+  document.querySelectorAll('.fbtn[data-f]').forEach(b => b.classList.toggle('active', b.dataset.f === 'ALL'));
+  document.querySelectorAll('.fbtn[data-p]').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.list-toggle').forEach(cb => {
+    cb.checked = true;
+    const block = document.querySelector('.file-block[data-list-id="' + cb.dataset.target + '"]');
+    if (block) block.classList.remove('list-hidden');
+  });
+  try { localStorage.removeItem(STORE_KEY); } catch (e) {}
+  applyFilters();
+});
+
+// restore the saved view on load (runs after the controls above are defined)
+loadState();
+applyFilters();
 
 // ---- detail drawer ----
 const overlay = document.getElementById('overlay');

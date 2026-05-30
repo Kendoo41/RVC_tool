@@ -39,6 +39,8 @@ class Pattern:
     files: List[dict] = field(default_factory=list)        # from pattern source tree
     rpt: str = ""                                          # winning report file
     rpt_dir: str = ""
+    hierarchy: str = ""                                    # full list-file token (HBUS_TOP/.../name)
+    run_line: str = ""                                     # full logical line (hierarchy + options) for re-running
 
     @property
     def has_detail(self) -> bool:
@@ -143,6 +145,10 @@ def build_dataset(
                 p.lists.append(label)
             if e.options and not p.options:
                 p.options = e.options
+            if not p.hierarchy and e.hierarchy:
+                p.hierarchy = e.hierarchy
+            if not p.run_line and e.logical:
+                p.run_line = e.logical
             group.patterns.append(p)
         group.patterns.sort(key=lambda x: x.sort_key())
         groups.append(group)

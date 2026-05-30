@@ -51,6 +51,8 @@ def _detail_payload(p: Pattern, include_content: bool) -> dict:
         "options": p.options,
         "rpt": p.rpt,
         "rpt_dir": p.rpt_dir,
+        "hierarchy": p.hierarchy,
+        "run_line": p.run_line,
         "checkpoints": [
             {
                 "main": c.get("main", ""),
@@ -359,6 +361,11 @@ footer{text-align:center;padding:18px;font-size:.7rem;color:var(--muted);font-fa
 .clear-btn{display:none;background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:.7rem;padding:0 2px;margin-left:4px}
 .clear-btn:hover{color:var(--fail)}
 .match-count{font-family:'Share Tech Mono',monospace;font-size:.72rem;color:var(--accent);letter-spacing:1px}
+.run-btn{display:none;font-family:'Share Tech Mono',monospace;font-size:.7rem;font-weight:700;letter-spacing:1px;
+  padding:3px 12px;border-radius:2px;cursor:pointer;border:1px solid var(--pass);background:rgba(0,230,118,.12);color:var(--pass)}
+body.exec-on .run-btn{display:inline-block}
+.run-btn:hover{background:rgba(0,230,118,.22)}
+.run-btn:disabled{opacity:.6;cursor:wait}
 /* drawer */
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);opacity:0;pointer-events:none;transition:opacity .2s;z-index:500}
 .overlay.open{opacity:1;pointer-events:auto}
@@ -670,6 +677,12 @@ function renderDrawer(name, d) {
   if (d.priority) dSub.appendChild(el('span', 'prio prio-' + d.priority.toLowerCase(), d.priority));
   if (d.lists && d.lists.length) dSub.appendChild(pill('lists: ' + d.lists.join(', ')));
   if (d.rpt) dSub.appendChild(pill('rpt: ' + d.rpt));
+  if (d.run_line || d.hierarchy) {
+    const rb = el('button', 'run-btn', '▶ Run');
+    rb.title = 'Run this pattern on the server';
+    rb.addEventListener('click', () => runPattern(name, rb));
+    dSub.appendChild(rb);   // visible only when body.exec-on (server started with --exec)
+  }
 
   dBody.innerHTML = '';
   if (d.options) {
@@ -737,4 +750,33 @@ document.querySelectorAll('tr.prow.has-detail').forEach(row =>
 document.getElementById('drawerClose').addEventListener('click', closeDrawer);
 overlay.addEventListener('click', closeDrawer);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+
+// ---- optional server-side run (only when served by `rvc serve --exec`) ----
+// The page itself stays inert: it asks the server whether exec is enabled and
+// only then reveals the Run buttons. Opened via file:// (no server) it never
+// probes, so nothing is runnable -> safe by default.
+let RVC_EXEC = { on: false, token_required: false };
+if (location.protocol !== 'file:') {
+  fetch('/rvc/status').then(r => r.ok ? r.json() : null).then(s => {
+    if (s && s.exec) { RVC_EXEC = { on: true, token_required: !!s.token_required }; document.body.classList.add('exec-on'); }
+  }).catch(() => {});
+}
+function rvcToken() {
+  if (!RVC_EXEC.token_required) return '';
+  let t = sessionStorage.getItem('rvc:token');
+  if (!t) { t = prompt('Enter run token:') || ''; if (t) sessionStorage.setItem('rvc:token', t); }
+  return t;
+}
+function runPattern(name, btn) {
+  if (!confirm('Submit a run for pattern:\n\n  ' + name + '\n\nThis launches the run command on the server.')) return;
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = '… submitting';
+  const headers = { 'Content-Type': 'application/json' };
+  const tk = rvcToken(); if (tk) headers['X-RVC-Token'] = tk;
+  fetch('/rvc/run', { method: 'POST', headers: headers, body: JSON.stringify({ name: name }) })
+    .then(r => r.json())
+    .then(res => { btn.textContent = res.ok ? ('✓ submitted (pid ' + res.pid + ')') : ('✗ ' + (res.error || 'error')); })
+    .catch(() => { btn.textContent = '✗ network error'; })
+    .finally(() => { setTimeout(() => { btn.disabled = false; btn.textContent = old; }, 5000); });
+}
 """

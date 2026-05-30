@@ -212,14 +212,119 @@ def cmd_itemlist(args) -> int:
 # serve
 # ---------------------------------------------------------------------------
 def cmd_serve(args) -> int:
-    import functools
     import http.server
+    import json as _json
     import socketserver
+    import subprocess
+    import time
 
-    directory = args.dir
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=directory)
-    with socketserver.TCPServer(("", args.port), handler) as httpd:
-        _log("[serve] http://localhost:{}/{}  (Ctrl-C to stop)".format(args.port, args.open or ""))
+    directory = os.path.abspath(args.dir)
+    exec_enabled = bool(args.exec)
+    frun_cmd = args.frun
+    run_cwd = os.path.abspath(args.run_cwd) if args.run_cwd else os.getcwd()
+    token = args.token
+    host = args.host
+    # Secure default: --exec only listens on loopback unless a host is given.
+    if exec_enabled and host == "":
+        host = "127.0.0.1"
+
+    # Build the run whitelist from the data file: name -> exact list line. The
+    # client only ever sends a pattern *name*; the line that gets executed comes
+    # from here, never from the request -> no command injection via the browser.
+    run_index = {}
+    runs_dir = os.path.join(directory, ".rvc_runs")
+    if exec_enabled:
+        data_path = os.path.join(directory, "report_data.json")
+        try:
+            with open(data_path, "r", encoding="utf-8") as fh:
+                _data = _json.load(fh)
+            for nm, d in _data.items():
+                run_index[nm] = d.get("run_line") or d.get("hierarchy") or nm
+            _log("[serve] --exec ON: {} runnable pattern(s) via '{}' (cwd={})".format(
+                len(run_index), frun_cmd, run_cwd))
+        except Exception as e:  # noqa: BLE001 - report and disable, don't crash
+            _log("[serve] --exec: cannot read {} ({}); running disabled.".format(data_path, e))
+            run_index = {}
+        os.makedirs(runs_dir, exist_ok=True)
+
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, directory=directory, **kw)
+
+        def log_message(self, *a):  # keep the console quiet
+            pass
+
+        def _reply(self, code, obj):
+            body = _json.dumps(obj).encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self):
+            if self.path.split("?")[0] == "/rvc/status":
+                self._reply(200, {"exec": exec_enabled,
+                                  "token_required": bool(token),
+                                  "count": len(run_index)})
+                return
+            return super().do_GET()
+
+        def do_POST(self):
+            if self.path.split("?")[0] != "/rvc/run":
+                self._reply(404, {"ok": False, "error": "unknown endpoint"})
+                return
+            if not exec_enabled:
+                self._reply(403, {"ok": False, "error": "exec disabled (start with --exec)"})
+                return
+            if token and self.headers.get("X-RVC-Token") != token:
+                self._reply(403, {"ok": False, "error": "bad or missing token"})
+                return
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                payload = _json.loads(self.rfile.read(length) or b"{}")
+            except Exception:  # noqa: BLE001
+                self._reply(400, {"ok": False, "error": "bad request body"})
+                return
+            name = payload.get("name", "")
+            if name not in run_index:  # whitelist: only patterns from the dataset
+                self._reply(404, {"ok": False, "error": "unknown pattern: {}".format(name)})
+                return
+            run_line = run_index[name]
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            safe = "".join(c if c.isalnum() else "_" for c in name)[:80]
+            list_path = os.path.join(runs_dir, "{}_{}.list".format(safe, ts))
+            log_path = os.path.join(runs_dir, "{}_{}.log".format(safe, ts))
+            try:
+                with open(list_path, "w", encoding="utf-8") as fh:
+                    fh.write(run_line + "\n")
+                logf = open(log_path, "w", encoding="utf-8")
+                # list args + no shell -> the browser cannot inject a command
+                proc = subprocess.Popen(
+                    [frun_cmd, list_path], cwd=run_cwd,
+                    stdout=logf, stderr=subprocess.STDOUT,
+                )
+            except FileNotFoundError:
+                self._reply(500, {"ok": False, "error": "command not found: {}".format(frun_cmd)})
+                return
+            except Exception as e:  # noqa: BLE001
+                self._reply(500, {"ok": False, "error": str(e)})
+                return
+            _log("[serve] RUN {} -> {} {} (pid {})".format(name, frun_cmd, list_path, proc.pid))
+            self._reply(200, {"ok": True, "name": name, "pid": proc.pid,
+                              "cmd": "{} {}".format(frun_cmd, list_path),
+                              "list": list_path, "log": log_path})
+
+    class _Server(socketserver.ThreadingTCPServer):
+        allow_reuse_address = True
+        daemon_threads = True
+
+    with _Server((host, args.port), Handler) as httpd:
+        shown = host or "localhost"
+        _log("[serve] http://{}:{}/{}  (Ctrl-C to stop)".format(shown, args.port, args.open or ""))
+        if exec_enabled and host not in ("127.0.0.1", "localhost"):
+            _log("[serve] !! --exec is exposed on {}: anyone who can reach this port can launch "
+                 "'{}'. Protect it with --token.".format(host, frun_cmd))
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
@@ -267,6 +372,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("dir", nargs="?", default="rvc_out")
     s.add_argument("--port", type=int, default=8000)
     s.add_argument("--open", default="report.html")
+    s.add_argument("--host", default="", help="bind address (default all; --exec forces 127.0.0.1 unless set)")
+    s.add_argument("--exec", action="store_true", help="enable POST /rvc/run so the dashboard Run button can launch the run command (off by default)")
+    s.add_argument("--frun", default="frun", help="run command used by --exec (default: frun)")
+    s.add_argument("--run-cwd", default="", help="working directory for the run command (default: current dir)")
+    s.add_argument("--token", default="", help="require header X-RVC-Token on /rvc/run")
     s.set_defaults(func=cmd_serve)
 
     return p

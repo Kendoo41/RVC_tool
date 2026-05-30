@@ -10,6 +10,7 @@ venv/
 
 # Tool output
 rvc_out/
+.rvc_runs/
 *.tmp
 *.tmp.*
 

@@ -156,6 +156,44 @@ rvc itemlist --vil-dir /shsv/.../1_VIL --output-dir lists/
 rvc serve rvc_out --port 8000          # http://localhost:8000/report.html
 ```
 
+#### `rvc serve --exec` — bấm pattern để chạy lại trên Linux
+
+Bật một endpoint cho phép **nút ▶ Run** trong drawer chạy `frun` cho đúng
+pattern bạn bấm — khép kín với `--watch` (chạy → sinh `.rpt` → dashboard tự
+đổi status).
+
+```bash
+# Chạy TRÊN máy Linux có frun. Mặc định --exec chỉ nghe 127.0.0.1.
+rvc serve rvc_out --exec --frun frun --run-cwd /common/work/khoidao/RVC_tool
+# rồi mở http://localhost:8000/report.html, click pattern → ▶ Run
+```
+
+Cách hoạt động: bấm pattern → trình duyệt gọi `POST /rvc/run` → server ghi một
+**list 1 dòng tạm** (đúng dòng của pattern đó, lấy từ `report_data.json`) vào
+`<serve_dir>/.rvc_runs/` rồi chạy `frun <list_đó>` **bất đồng bộ** (log ra
+`.rvc_runs/*.log`). Vì `frun` thường submit job LSF, nút có hộp **xác nhận**
+trước khi chạy.
+
+| Cờ | Ý nghĩa |
+|---|---|
+| `--exec` | bật `/rvc/run` (mặc định **tắt** → dashboard chỉ xem). |
+| `--frun` | tên lệnh chạy (mặc định `frun`). |
+| `--run-cwd` | thư mục làm việc khi chạy lệnh (mặc định thư mục hiện tại). |
+| `--host` | địa chỉ bind (mặc định loopback khi `--exec`). |
+| `--token` | bắt buộc header `X-RVC-Token` cho `/rvc/run`. |
+
+**An toàn theo thiết kế:**
+* Client chỉ gửi **tên pattern**; dòng lệnh thật lấy từ **whitelist** trong
+  `report_data.json` — tên lạ bị từ chối (không inject được).
+* Chạy bằng **list-args, không `shell=True`**.
+* `--exec` **tắt mặc định**; mở `file://` trang không hề dò server → **không
+  chạy được gì**, nút Run ẩn.
+* Chỉ nghe **127.0.0.1** trừ khi bạn tự đặt `--host`; nếu mở ra mạng, tool
+  **cảnh báo** và bạn nên kèm `--token`.
+
+> ⚠️ Đây là endpoint chạy lệnh trên login node dùng chung. Chỉ bật `--exec`
+> trên máy/cổng bạn kiểm soát; ra mạng thì luôn dùng `--token`.
+
 ---
 
 ## Dashboard HTML

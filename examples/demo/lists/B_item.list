@@ -1,0 +1,6 @@
+# B priority demo list
+hbus_reg_default_value
+hbus_clock_gating
+hbus_addr_map_sram
+hbus_low_power_retention
+hbus_dummy_unrun_pattern

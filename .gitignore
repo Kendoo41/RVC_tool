@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# Tool output
+rvc_out/
+*.tmp
+*.tmp.*
+
+# Editor / OS
+.vscode/
+.idea/
+*~
+.DS_Store
+
+# Excel lock files
+~$*

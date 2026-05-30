@@ -1,0 +1,22 @@
+{
+  "report_dirs": [
+    "examples/demo/master_report/v001_002",
+    "examples/demo/master_report/v001_001"
+  ],
+  "list_files": [
+    "examples/demo/lists/S_item.list",
+    "examples/demo/lists/A_item.list",
+    "examples/demo/lists/B_item.list"
+  ],
+  "vil_dir": "examples/demo/vil",
+  "pattern_dirs": [
+    "examples/demo/testcase"
+  ],
+  "output_dir": "rvc_out",
+  "html_name": "report.html",
+  "excel_name": "rvc_review.xlsx",
+  "title": "RVC Demo Dashboard",
+  "include_content": true,
+  "include_unlisted": true,
+  "max_file_bytes": 200000
+}

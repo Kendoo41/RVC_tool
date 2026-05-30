@@ -167,6 +167,12 @@ Kế thừa giao diện dark của `check_result`, thêm:
   * bảng **checkpoint** (Main / Middle / Detailed / Confirmation + nguồn VIL),
   * **nội dung file nguồn** (.s/.asm/.c → .v → .sv), mỗi file một khối gập/mở.
 * Lọc theo **Result**, **Priority**, **tên**; ẩn/hiện từng list; gập/mở section.
+* **Nhớ trạng thái xem**: list nào đang ẩn + ô tìm kiếm + filter Result/Priority
+  được lưu trong `localStorage` của trình duyệt. Tắt vài list rồi **build lại để
+  cập nhật status** (hoặc reload trang) thì view vẫn giữ nguyên; bấm **Reset** để
+  xoá và hiện lại toàn bộ. (Lưu theo đường dẫn trang nên nhiều dashboard không
+  đè nhau; vài trình duyệt chặn `localStorage` trên `file://` thì tự bỏ qua,
+  không lỗi.)
 
 > **Đóng gói:** trang `report.html` cố ý **nhẹ** (chỉ bảng). Chi tiết nặng nằm
 > trong `report_data.js` (nạp như `window.__RVC_DATA__`, chạy được khi **mở

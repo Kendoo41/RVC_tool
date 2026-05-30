@@ -57,12 +57,24 @@ def cmd_build(args) -> int:
         _log("[ERR] no list_files configured - nothing to group. Use --list-file or a config.")
         return 2
 
+    # --fast = "skip compile, run straight": drop BOTH heavy scans and build a
+    # sim-status-only dashboard as quickly as possible. --no-vil / --no-patterns
+    # skip them individually.
+    skip_vil = args.no_vil or args.fast
+    skip_patterns = args.no_patterns or args.fast
+
     # Expensive scans (VIL + pattern source tree) run once; in --watch mode only
     # the master report is re-parsed when a .rpt file changes.
-    vfiles = cfgmod.vil_files(cfg)
-    vil_info = vilmod.scan_vils(files=vfiles, progress=_log) if vfiles else {}
+    if skip_vil:
+        _log("[SKIP] VIL scan (--no-vil/--fast) -> no priority/checkpoints")
+        vil_info = {}
+    else:
+        vfiles = cfgmod.vil_files(cfg)
+        vil_info = vilmod.scan_vils(files=vfiles, progress=_log) if vfiles else {}
     pattern_index = {}
-    if cfg["pattern_dirs"]:
+    if skip_patterns:
+        _log("[SKIP] pattern source scan (--no-patterns/--fast) -> no source in drawer")
+    elif cfg["pattern_dirs"]:
         pattern_index = patmod.build_index(cfg["pattern_dirs"], progress=_log)
 
     out_dir = cfg["output_dir"]
@@ -228,6 +240,9 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--pattern-dir", help="comma-separated testcase trees")
     b.add_argument("--output-dir")
     b.add_argument("--no-content", action="store_true", help="do not embed source content")
+    b.add_argument("--no-vil", action="store_true", help="skip VIL scan (no priority/checkpoints)")
+    b.add_argument("--no-patterns", action="store_true", help="skip pattern source scan (no source in drawer)")
+    b.add_argument("--fast", action="store_true", help="sim-status only: skip BOTH VIL and pattern scans (like skip-compile)")
     b.add_argument("--watch", action="store_true", help="keep running; rebuild when a .rpt changes")
     b.add_argument("--watch-interval", type=int, default=3, help="watch poll seconds (default 3)")
     b.set_defaults(func=cmd_build)

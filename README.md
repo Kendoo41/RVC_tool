@@ -104,6 +104,28 @@ Kết quả trong `output_dir`: `report.html`, `report_data.js`, `report_data.js
 > VIL và cây pattern chỉ quét **một lần**; ở chế độ `--watch` chỉ master report
 > được đọc lại khi có `.rpt` thay đổi → rất nhanh.
 
+#### Chạy nhanh "chỉ xem kết quả sim" (như *skip compile, run thẳng*)
+
+Đọc VIL (`.xlsx`) và quét cây pattern là phần **chậm nhất**. Khi chỉ cần xem
+PASS/FAIL/NA của master report, bỏ qua chúng:
+
+```bash
+rvc build -c rvc.json --fast           # bỏ CẢ VIL lẫn pattern → dashboard status-only
+rvc build -c rvc.json --no-vil         # bỏ VIL (mất cột Priority + checkpoint)
+rvc build -c rvc.json --no-patterns    # bỏ quét source (drawer không có file nguồn)
+```
+
+| Cờ | Bỏ qua | Mất gì trên dashboard |
+|---|---|---|
+| `--no-vil` | quét VIL `.xlsx` | cột **Priority** + bảng **checkpoint** |
+| `--no-patterns` | quét cây testcase | **nội dung file nguồn** trong drawer |
+| `--fast` | cả hai | chỉ còn **status sim** (Pass/Fail/N/A/Not-run) + scoreboard |
+
+> Muốn lặp nhiều lần mà vẫn có đủ chi tiết? Dùng `--watch`: VIL + pattern quét
+> **một lần** lúc khởi động, sau đó mỗi lần `.rpt` đổi chỉ master report được
+> đọc lại. `--fast` hợp với kiểm tra **một phát cho nhanh**; `--watch` hợp với
+> **theo dõi liên tục** một phiên dài.
+
 ### `rvc filter` — cập nhật list file theo status (thay `05_filter`)
 ```bash
 # Mặc định: comment các pattern đã PASS/FAIL/NA, chỉ chừa pattern chưa chạy

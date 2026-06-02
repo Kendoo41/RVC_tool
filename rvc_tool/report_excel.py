@@ -177,9 +177,11 @@ def _summary_sheet(wb, ds: Dataset):
         ws.cell(row=i, column=1, value=k).border = _BORDER
         ws.cell(row=i, column=2, value=v).border = _BORDER
 
-    # priority breakdown
+    # priority breakdown (list viewpoint, so it sums to Total above)
     prio = {"S": 0, "A": 0, "B": 0, "(none)": 0}
     for p in ds.patterns.values():
+        if not p.in_list_view:
+            continue
         prio[p.priority if p.priority in ("S", "A", "B") else "(none)"] += 1
     ws["D3"] = "Priority"
     ws["E3"] = "Count"
@@ -208,7 +210,25 @@ def _summary_sheet(wb, ds: Dataset):
             ws.cell(row=r, column=ci, value=v).border = _BORDER
         r += 1
 
-    for col, w in (("A", 22), ("B", 10), ("C", 10), ("D", 12), ("E", 10), ("F", 10)):
+    # VIL coverage breakdown - the planned-vs-listed gap (the VIL viewpoint).
+    vt = ds.vil_totals()
+    if vt["TOTAL"]:
+        ws["D10"] = "VIL coverage"
+        ws["D10"].font = Font(bold=True)
+        cov = [("VIL items", vt["TOTAL"]), ("In a list", vt["LISTED"]),
+               ("NOT listed", vt["NOT_LISTED"]), ("Pass", vt["PASS"]),
+               ("Fail", vt["FAIL"]), ("Not run", vt["MISSING"])]
+        ws.cell(row=11, column=4, value="Metric").font = _HEAD_FONT
+        ws.cell(row=11, column=4).fill = _HEAD_FILL
+        ws.cell(row=11, column=4).border = _BORDER
+        ws.cell(row=11, column=5, value="Count").font = _HEAD_FONT
+        ws.cell(row=11, column=5).fill = _HEAD_FILL
+        ws.cell(row=11, column=5).border = _BORDER
+        for i, (k, v) in enumerate(cov, start=12):
+            ws.cell(row=i, column=4, value=k).border = _BORDER
+            ws.cell(row=i, column=5, value=v).border = _BORDER
+
+    for col, w in (("A", 22), ("B", 10), ("C", 10), ("D", 14), ("E", 10), ("F", 10)):
         ws.column_dimensions[col].width = w
 
 

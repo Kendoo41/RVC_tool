@@ -53,6 +53,7 @@ def _detail_payload(p: Pattern, include_content: bool) -> dict:
         "rpt_dir": p.rpt_dir,
         "hierarchy": p.hierarchy,
         "run_line": p.run_line,
+        "in_vil": p.in_vil,
         "checkpoints": [
             {
                 "main": c.get("main", ""),
@@ -159,6 +160,107 @@ def _section(label: str, patterns: List[Pattern], is_list: bool, list_id: str) -
     )
 
 
+def _vil_row(p: Pattern) -> str:
+    """One row in the VIL viewpoint: pattern + priority + *in a list?* + result."""
+    badge = _STATUS_BADGE.get(p.status, "badge-miss")
+    disp = _STATUS_DISP.get(p.status, "&mdash;")
+    detail_cls = " has-detail" if p.has_detail else ""
+    if p.lists:
+        names = ", ".join(p.lists)
+        listed = '<span class="listed-yes" title="{t}">&#10003; {t}</span>'.format(t=_esc(names))
+        la = "yes"
+    else:
+        listed = '<span class="listed-no">&#10007; NOT LISTED</span>'
+        la = "no"
+    return (
+        '<tr class="prow{dc}" data-name="{name}" data-status="{status}" data-prio="{prio}" data-listed="{la}">'
+        '<td class="test-label">{name}</td>'
+        '<td class="prio-cell">{pb}</td>'
+        '<td class="listed-cell">{listed}</td>'
+        '<td><span class="badge {badge}">{disp}</span></td>'
+        "</tr>"
+    ).format(
+        dc=detail_cls, name=_esc(p.name), status=p.status, prio=p.priority or "", la=la,
+        pb=_prio_badge(p.priority), listed=listed, badge=badge, disp=disp,
+    )
+
+
+def _vil_section(bucket: str, patterns: List[Pattern]) -> str:
+    """A priority bucket of the VIL viewpoint (rendered like a list section)."""
+    label = {"S": "Priority S", "A": "Priority A", "B": "Priority B", "": "No priority"}.get(bucket, bucket)
+    total = len(patterns)
+    not_listed = sum(1 for p in patterns if not p.lists)
+    listed = total - not_listed
+    wl = int(listed * 100 / (total or 1))
+    hdr = "file-header" + (" has-missing" if not_listed else " all-pass")
+    safe = "__vil_" + (bucket or "none") + "__"
+    if not_listed:
+        gap = '<span class="stat s-miss">&#9888; {} not listed</span>'.format(not_listed)
+    else:
+        gap = '<span class="stat s-pass">&#10003; all listed</span>'
+    rows = "\n".join(_vil_row(p) for p in patterns)
+    return """<section class="file-block" data-list-id="{safe}">
+  <div class="{hdr}">
+    <div class="file-title">
+      <span class="file-icon">&#9654;</span>
+      <span class="list-badge">VIL</span>
+      <span class="list-name">{label}</span>
+    </div>
+    <div class="file-meta">
+      <span class="stat s-pass">&#10003; {listed} listed</span>
+      {gap}
+      <span class="stat">{total} total</span>
+    </div>
+  </div>
+  <div class="health-bar">
+    <div class="hb-pass" style="width:{wl}%"></div>
+    <div class="hb-na"   style="width:{wn}%"></div>
+  </div>
+  <table class="result-table">
+    <thead><tr><th>Test Pattern</th><th>Prio</th><th>In list?</th><th>Result</th></tr></thead>
+    <tbody>
+{rows}
+    </tbody></table></section>""".format(
+        safe=safe, hdr=hdr, label=_esc(label), listed=listed, gap=gap,
+        total=total, wl=wl, wn=100 - wl, rows=rows,
+    )
+
+
+def _vil_view_html(ds: Dataset) -> str:
+    """The whole VIL viewpoint pane: scoreboard + coverage filter + sections."""
+    vt = ds.vil_totals()
+    sb = """<div class="scoreboard">
+  <div class="score-card sc-total"><div class="score-num">{TOTAL}</div><div class="score-label">VIL items</div></div>
+  <div class="score-card sc-listed"><div class="score-num">{LISTED}</div><div class="score-label">In list</div></div>
+  <div class="score-card sc-gap"><div class="score-num">{NOT_LISTED}</div><div class="score-label">Not listed</div></div>
+  <div class="score-card sc-pass"><div class="score-num">{PASS}</div><div class="score-label">Pass</div></div>
+  <div class="score-card sc-fail"><div class="score-num">{FAIL}</div><div class="score-label">Fail</div></div>
+  <div class="score-card sc-miss"><div class="score-num">{MISSING}</div><div class="score-label">Not run</div></div>
+</div>""".format(**vt)
+    toolbar = """<div class="filter-toolbar">
+    <div class="filter-group">
+      <span class="filter-label">Coverage</span>
+      <button class="vfbtn active" data-vl="ALL">ALL</button>
+      <button class="vfbtn" data-vl="yes">In list</button>
+      <button class="vfbtn warn" data-vl="no">Not listed</button>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">Name</span>
+      <div class="search-wrap">
+        <span class="search-icon">&#128269;</span>
+        <input id="vilSearch" class="name-search" type="text" placeholder="filter pattern name" autocomplete="off" spellcheck="false">
+        <button class="clear-btn" id="vilClear" title="clear">&#10005;</button>
+      </div>
+    </div>
+    <div class="filter-group"><span class="match-count" id="vilMatchCount"></span></div>
+  </div>"""
+    intro = ('<p class="section-heading">VIL viewpoint &bull; every planned item &bull; '
+             '&#10007; NOT LISTED = in the VIL but absent from every list file</p>')
+    sections = "\n".join(_vil_section(g.priority, g.patterns) for g in ds.vil_groups)
+    return ('<div class="view" id="viewVil" data-view="vil">'
+            + intro + sb + toolbar + sections + '</div>')
+
+
 def generate(
     ds: Dataset,
     out_html: str,
@@ -210,6 +312,17 @@ def generate(
     sections_html = "\n".join(s for s in sections if s)
 
     n_lists = len(ds.groups)
+
+    has_vil = any(p.in_vil for p in ds.patterns.values())
+    if has_vil:
+        tabs = ('<div class="view-tabs">'
+                '<button class="vtab active" data-view="list">&#9636; List View</button>'
+                '<button class="vtab" data-view="vil">&#9635; VIL View</button></div>')
+        vil_view = _vil_view_html(ds)
+    else:
+        tabs = ""
+        vil_view = ""
+
     page = _PAGE_TEMPLATE.format(
         title=_esc(title),
         css=_CSS,
@@ -221,6 +334,8 @@ def generate(
         n_lists=n_lists,
         cb_items=cb_html,
         sections=sections_html,
+        tabs=tabs,
+        vil_view=vil_view,
         data_js=_esc(data_js),
         data_json=_esc(data_json),
         script=_SCRIPT,
@@ -399,6 +514,26 @@ body.exec-on .run-btn{display:inline-block}
 .empty-note{color:var(--muted);font-size:.8rem;font-style:italic}
 .meta-pill{font-family:'Share Tech Mono',monospace;font-size:.66rem;padding:2px 8px;border-radius:2px;
   border:1px solid var(--border);color:var(--muted)}
+.meta-pill.warn{border-color:var(--miss);color:var(--miss)}
+/* view tabs (List view <-> VIL view) */
+.view-tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border)}
+.vtab{font-family:'Share Tech Mono',monospace;font-size:.78rem;font-weight:700;letter-spacing:1px;
+  padding:8px 18px;border:1px solid var(--border);border-bottom:none;border-radius:4px 4px 0 0;
+  background:transparent;color:var(--muted);cursor:pointer;margin-bottom:-1px}
+.vtab:hover{color:var(--accent)}
+.vtab.active{background:var(--surface);color:var(--accent);border-color:var(--accent);border-bottom:1px solid var(--surface)}
+.view{display:none}
+.view.active{display:block}
+/* VIL coverage cells */
+.listed-cell{font-size:.74rem}
+.listed-yes{color:var(--pass);font-family:'Share Tech Mono',monospace}
+.listed-no{color:var(--miss);font-family:'Share Tech Mono',monospace;font-weight:700;letter-spacing:1px}
+.sc-listed .score-num{color:var(--pass)}.sc-gap .score-num{color:var(--miss)}
+.vfbtn{font-family:'Share Tech Mono',monospace;font-size:.72rem;font-weight:700;letter-spacing:1px;padding:3px 12px;
+  border-radius:2px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted)}
+.vfbtn:hover{border-color:var(--accent);color:var(--accent)}
+.vfbtn.active{background:rgba(0,176,255,.15);border-color:var(--accent);color:var(--accent)}
+.vfbtn.warn.active{background:rgba(245,158,11,.12);border-color:var(--miss);color:var(--miss)}
 """
 
 _PAGE_TEMPLATE = """<!DOCTYPE html>
@@ -433,6 +568,8 @@ _PAGE_TEMPLATE = """<!DOCTYPE html>
   <div class="score-card sc-miss"><div class="score-num">{nmiss}</div><div class="score-label">Not run</div></div>
 </div>
 <main>
+  {tabs}
+  <div class="view active" id="viewList" data-view="list">
   <p class="section-heading">{n_lists} list(s) &bull; click a row to inspect checkpoints &amp; source</p>
   <div class="list-panel" id="listPanel">
     <div class="list-panel-header" id="listPanelToggle">
@@ -473,6 +610,8 @@ _PAGE_TEMPLATE = """<!DOCTYPE html>
     <div class="filter-group"><span class="match-count" id="matchCount"></span></div>
   </div>
 {sections}
+  </div>
+{vil_view}
 </main>
 <footer>RVC tool &bull; data: {data_js} / {data_json}</footer>
 
@@ -563,7 +702,7 @@ function loadState() {
 function applyFilters() {
   const showAllRes = resultFilters.size === 0;
   const showAllPrio = prioFilters.size === 0;
-  document.querySelectorAll('.file-block').forEach(block => {
+  document.querySelectorAll('#viewList .file-block').forEach(block => {
     let visible = 0;
     block.querySelectorAll('tbody tr').forEach(row => {
       const name = (row.querySelector('.test-label')?.textContent || '').toLowerCase();
@@ -583,7 +722,7 @@ function applyFilters() {
 }
 function updateCount() {
   let total = 0, vis = 0;
-  document.querySelectorAll('tbody tr').forEach(r => { total++; if (r.style.display !== 'none') vis++; });
+  document.querySelectorAll('#viewList tbody tr').forEach(r => { total++; if (r.style.display !== 'none') vis++; });
   const el = document.getElementById('matchCount');
   if (el) el.textContent = (resultFilters.size || prioFilters.size || searchText) ? (vis + ' / ' + total + ' shown') : '';
 }
@@ -677,6 +816,8 @@ function renderDrawer(name, d) {
   if (d.priority) dSub.appendChild(el('span', 'prio prio-' + d.priority.toLowerCase(), d.priority));
   if (d.lists && d.lists.length) dSub.appendChild(pill('lists: ' + d.lists.join(', ')));
   if (d.rpt) dSub.appendChild(pill('rpt: ' + d.rpt));
+  if (!d.lists || !d.lists.length) { const w = pill('NOT LISTED'); w.classList.add('warn'); dSub.appendChild(w); }
+  if (d.in_vil === false) { const w = pill('NOT IN VIL'); w.classList.add('warn'); dSub.appendChild(w); }
   if (d.run_line || d.hierarchy) {
     const rb = el('button', 'run-btn', '▶ Run');
     rb.title = 'Run this pattern on the server';
@@ -778,5 +919,56 @@ function runPattern(name, btn) {
     .then(res => { btn.textContent = res.ok ? ('✓ submitted (pid ' + res.pid + ')') : ('✗ ' + (res.error || 'error')); })
     .catch(() => { btn.textContent = '✗ network error'; })
     .finally(() => { setTimeout(() => { btn.disabled = false; btn.textContent = old; }, 5000); });
+}
+
+// ---- view tabs (List view <-> VIL view) ----
+function setView(v) {
+  document.querySelectorAll('.vtab').forEach(b => b.classList.toggle('active', b.dataset.view === v));
+  document.querySelectorAll('.view').forEach(el => el.classList.toggle('active', el.dataset.view === v));
+  try { localStorage.setItem(STORE_KEY + ':view', v); } catch (e) {}
+}
+document.querySelectorAll('.vtab').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
+(function restoreView() {
+  let v = 'list';
+  try { v = localStorage.getItem(STORE_KEY + ':view') || 'list'; } catch (e) {}
+  if (document.querySelector('.view[data-view="' + v + '"]')) setView(v);
+})();
+
+// ---- VIL view: coverage filter (In list / Not listed) + name search ----
+let vilListed = '';   // '' = all | 'yes' | 'no'
+let vilSearch = '';
+function applyVilFilters() {
+  document.querySelectorAll('#viewVil .file-block').forEach(block => {
+    let visible = 0;
+    block.querySelectorAll('tbody tr').forEach(row => {
+      const name = (row.querySelector('.test-label')?.textContent || '').toLowerCase();
+      const okListed = !vilListed || row.dataset.listed === vilListed;
+      const okSearch = name.includes(vilSearch);
+      if (okListed && okSearch) { row.style.display = ''; visible++; }
+      else row.style.display = 'none';
+    });
+    const tbl = block.querySelector('.result-table');
+    if (tbl) tbl.style.display = visible === 0 ? 'none' : '';
+  });
+  let total = 0, vis = 0;
+  document.querySelectorAll('#viewVil tbody tr').forEach(r => { total++; if (r.style.display !== 'none') vis++; });
+  const el = document.getElementById('vilMatchCount');
+  if (el) el.textContent = (vilListed || vilSearch) ? (vis + ' / ' + total + ' shown') : '';
+}
+document.querySelectorAll('.vfbtn[data-vl]').forEach(btn => btn.addEventListener('click', () => {
+  const v = btn.dataset.vl;
+  vilListed = (v === 'ALL') ? '' : v;
+  document.querySelectorAll('.vfbtn[data-vl]').forEach(b => b.classList.toggle('active', b.dataset.vl === v));
+  applyVilFilters();
+}));
+const vilInput = document.getElementById('vilSearch');
+const vilClearBtn = document.getElementById('vilClear');
+if (vilInput) {
+  vilInput.addEventListener('input', () => {
+    vilSearch = vilInput.value.toLowerCase();
+    vilClearBtn.style.display = vilSearch ? 'flex' : 'none';
+    applyVilFilters();
+  });
+  vilClearBtn.addEventListener('click', () => { vilInput.value = ''; vilSearch = ''; vilClearBtn.style.display = 'none'; applyVilFilters(); });
 }
 """

@@ -41,10 +41,22 @@ class Pattern:
     rpt_dir: str = ""
     hierarchy: str = ""                                    # full list-file token (HBUS_TOP/.../name)
     run_line: str = ""                                     # full logical line (hierarchy + options) for re-running
+    in_vil: bool = False                                   # appears in at least one VIL workbook
 
     @property
     def has_detail(self) -> bool:
         return bool(self.checkpoints or self.files)
+
+    @property
+    def in_list(self) -> bool:
+        return bool(self.lists)
+
+    @property
+    def in_list_view(self) -> bool:
+        # The list viewpoint = patterns that are in a list file OR have a report
+        # result. VIL-only items (planned but never listed/run) are excluded so
+        # they don't inflate the list-view scoreboard; they live in the VIL view.
+        return self.in_list or self.status != mr.MISSING
 
     def sort_key(self):
         return (
@@ -68,17 +80,40 @@ class ListGroup:
 
 
 @dataclass
+class VilGroup:
+    """A priority bucket of the VIL viewpoint (S / A / B / no-priority)."""
+    priority: str
+    patterns: List[Pattern] = field(default_factory=list)
+
+
+@dataclass
 class Dataset:
     groups: List[ListGroup]
     patterns: Dict[str, Pattern]    # name -> Pattern (the canonical objects)
     report_dirs: List[str] = field(default_factory=list)
     unlisted: List[Pattern] = field(default_factory=list)
+    vil_groups: List[VilGroup] = field(default_factory=list)  # VIL viewpoint, by priority
 
     def totals(self) -> Dict[str, int]:
+        """Status totals over the LIST viewpoint (patterns in a list or report)."""
         c = {"PASS": 0, "FAIL": 0, "NA": 0, "MISSING": 0, "TOTAL": 0}
         for p in self.patterns.values():
+            if not p.in_list_view:
+                continue  # VIL-only items belong to the VIL view, not here
             c[p.status] = c.get(p.status, 0) + 1
             c["TOTAL"] += 1
+        return c
+
+    def vil_totals(self) -> Dict[str, int]:
+        """Coverage + status totals over the VIL viewpoint (every planned item)."""
+        c = {"TOTAL": 0, "LISTED": 0, "NOT_LISTED": 0,
+             "PASS": 0, "FAIL": 0, "NA": 0, "MISSING": 0}
+        for p in self.patterns.values():
+            if not p.in_vil:
+                continue
+            c["TOTAL"] += 1
+            c["LISTED" if p.in_list else "NOT_LISTED"] += 1
+            c[p.status] = c.get(p.status, 0) + 1
         return c
 
 
@@ -111,6 +146,7 @@ def build_dataset(
             # priority + checkpoints from VIL
             v = vil_info.get(name)
             if v:
+                p.in_vil = True
                 p.priority = v.get("priority", "") or ""
                 p.checkpoints = list(v.get("usages", []))
             # status from report
@@ -154,6 +190,12 @@ def build_dataset(
         groups.append(group)
         log("[MODEL] list {}: {} pattern(s)".format(label, len(group.patterns)))
 
+    # VIL viewpoint: materialise EVERY planned VIL item, even those that are in
+    # no list file and have no report line. Without this they would silently
+    # vanish - exactly the coverage gap the VIL view exists to surface.
+    for name in vil_info:
+        get(name)  # creates (with in_vil=True) if not already seen via a list/report
+
     # Unlisted: tests present in the report but not in any list file.
     unlisted: List[Pattern] = []
     if include_unlisted:
@@ -162,11 +204,20 @@ def build_dataset(
                 unlisted.append(get(name))
         unlisted.sort(key=lambda x: x.sort_key())
 
+    # Group the VIL viewpoint by priority (S / A / B / none).
+    vil_groups: List[VilGroup] = []
+    for bucket in ("S", "A", "B", ""):
+        members = [p for p in patterns.values() if p.in_vil and (p.priority or "") == bucket]
+        if members:
+            members.sort(key=lambda x: x.sort_key())
+            vil_groups.append(VilGroup(priority=bucket, patterns=members))
+
     return Dataset(
         groups=groups,
         patterns=patterns,
         report_dirs=report_dirs or [],
         unlisted=unlisted,
+        vil_groups=vil_groups,
     )
 
 

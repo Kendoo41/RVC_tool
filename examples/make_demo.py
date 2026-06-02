@@ -48,6 +48,17 @@ PATTERNS = {
     ],
 }
 
+# Planned in the VIL but deliberately NOT put into any list file and never run -
+# these only appear in the VIL viewpoint, flagged "NOT LISTED" (the coverage gap).
+VIL_ONLY = {
+    "S": [
+        ("hbus_qos_starvation_guard", "Function", "Arbiter", "Anti-starvation", "Low-priority master eventually granted"),
+    ],
+    "A": [
+        ("hbus_safety_ecc_addr_parity", "Safety", "ECC", "Address parity", "Address parity error is flagged"),
+    ],
+}
+
 
 def make_vil():
     out_dir = os.path.join(DEMO, "vil")
@@ -83,6 +94,11 @@ def make_vil():
     qos_rows = []
     safety_rows = []
     for prio, items in PATTERNS.items():
+        for (name, main, middle, detail, conf) in items:
+            target = safety_rows if "safety" in name or "err" in name else qos_rows
+            target.append((name, main, middle, detail, conf, prio))
+    # VIL-only items: planned here but never listed/run (the coverage gap demo).
+    for prio, items in VIL_ONLY.items():
         for (name, main, middle, detail, conf) in items:
             target = safety_rows if "safety" in name or "err" in name else qos_rows
             target.append((name, main, middle, detail, conf, prio))
@@ -168,6 +184,8 @@ def main():
     print("[demo] reports    :", ", ".join(rpt_dirs))
     print("[demo] patterns   : {} folders under {}".format(n, pat_base))
     print("[demo] lists      :", lists)
+    n_vil_only = sum(len(v) for v in VIL_ONLY.values())
+    print("[demo] VIL-only   : {} planned-but-not-listed item(s) -> see VIL View".format(n_vil_only))
     print("[demo] now run    : python -m rvc_tool build -c examples/rvc.example.json")
 
 

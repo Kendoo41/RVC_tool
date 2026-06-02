@@ -200,6 +200,23 @@ trước khi chạy.
 
 Kế thừa giao diện dark của `check_result`, thêm:
 
+### Hai viewpoint (2 tab)
+
+Dashboard có **2 tab** vì có hai câu hỏi khác nhau:
+
+| Tab | Gốc là | Trả lời câu hỏi |
+|---|---|---|
+| **List View** | list file + master report | *"Những gì đã đưa vào list chạy ra sao?"* (Pass/Fail/N/A/Not-run) |
+| **VIL View** | **Verification Item List** | *"Mọi item trong kế hoạch đã được list để chạy chưa?"* |
+
+> **Vì sao cần VIL View:** List View chỉ thấy pattern đã nằm trong list/report —
+> một VIL item **chưa được list** sẽ vô hình. VIL View liệt kê **mọi** item của
+> VIL (nhóm theo priority S/A/B), thêm cột **In list?**: item nào chưa có trong
+> list nào sẽ bị đánh dấu **✗ NOT LISTED** — đó chính là *coverage gap* (đã lên
+> kế hoạch nhưng chưa đưa vào chạy). Scoreboard VIL View hiện **VIL items /
+> In list / Not listed** + Pass/Fail/Not-run, lọc nhanh theo **Not listed**.
+> Tab được nhớ qua `localStorage` như các trạng thái xem khác.
+
 * **Cột Priority** (S/A/B từ VIL) + scoreboard (Total / Pass / Fail / N/A / Not-run).
 * **Click vào pattern** → mở **drawer** bên phải hiển thị:
   * bảng **checkpoint** (Main / Middle / Detailed / Confirmation + nguồn VIL),
@@ -221,7 +238,8 @@ Kế thừa giao diện dark của `check_result`, thêm:
 
 ## Excel cho AI review (`rvc_review.xlsx`)
 
-* **Summary** — tổng theo status, theo priority, theo từng list.
+* **Summary** — tổng theo status, theo priority, theo từng list, **+ VIL coverage**
+  (VIL items / In a list / NOT listed) cho cùng góc nhìn với VIL View.
 * **By Checkpoint** — *mỗi dòng = 1 checkpoint* (pattern, priority, status, Main/
   Middle/Detailed/Confirmation, nguồn VIL, file nguồn) + 2 cột trống
   **`Reflected? (AI)`** và **`Evidence / Notes (AI)`** để AI điền khi đối chiếu

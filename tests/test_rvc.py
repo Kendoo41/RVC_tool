@@ -167,6 +167,10 @@ def test_model_join():
         "pat_one": {"priority": "S", "usages": [{"main": "X", "middle": "", "detailed": "",
                                                   "confirmation": "do x", "checkpoint": "X | do x",
                                                   "file_name": "v.xlsx", "sheet": "s", "row": 5}]},
+        # planned in the VIL but in NO list and NO report -> the coverage gap
+        "pat_vil_only": {"priority": "A", "usages": [{"main": "Y", "middle": "", "detailed": "",
+                                                       "confirmation": "do y", "checkpoint": "Y | do y",
+                                                       "file_name": "v.xlsx", "sheet": "s", "row": 9}]},
     }
     reports = {
         "pat_one": {"status": "PASS", "rpt": "a.rpt", "rpt_dir": "v1"},
@@ -175,11 +179,27 @@ def test_model_join():
         "pat_unlisted": {"status": "PASS", "rpt": "a.rpt", "rpt_dir": "v1"},
     }
     ds = modelmod.build_dataset([list_path], vil_info=vil_info, reports=reports)
+    # LIST viewpoint totals must NOT count the VIL-only item (it's not listed
+    # and has no report line) -> same numbers as before this feature.
     t = ds.totals()
     assert t["PASS"] == 2 and t["FAIL"] == 1 and t["MISSING"] == 1
+    assert t["TOTAL"] == 4  # pat_one, pat_two, pat_three, pat_unlisted (NOT pat_vil_only)
     p1 = ds.patterns["pat_one"]
     assert p1.priority == "S" and p1.status == "PASS" and p1.checkpoints
+    assert p1.in_vil is True and p1.in_list is True
     assert any(p.name == "pat_unlisted" for p in ds.unlisted)
+
+    # VIL-only item exists, is flagged in_vil but not in_list, and is MISSING.
+    vo = ds.patterns["pat_vil_only"]
+    assert vo.in_vil is True and vo.in_list is False and vo.status == "MISSING"
+
+    # VIL viewpoint totals: 2 planned items, 1 listed, 1 not-listed (the gap).
+    vt = ds.vil_totals()
+    assert vt["TOTAL"] == 2 and vt["LISTED"] == 1 and vt["NOT_LISTED"] == 1
+    # vil_groups: S bucket has pat_one, A bucket has pat_vil_only.
+    buckets = {g.priority: [p.name for p in g.patterns] for g in ds.vil_groups}
+    assert buckets.get("S") == ["pat_one"] and buckets.get("A") == ["pat_vil_only"]
+
     # priority item lists
     pl = modelmod.priority_item_lists(vil_info)
     assert pl["S"] == ["pat_one"]
